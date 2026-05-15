@@ -1,30 +1,46 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronRight, Terminal, X } from "lucide-react";
-import type { OptionId, Question } from "@/types";
+import { Check, ChevronRight, Loader2, Terminal, X } from "lucide-react";
+import type { Question } from "@/types";
+
+const LETTERS = ["A", "B", "C", "D", "E"] as const;
+
+type SubmitResult = {
+  selectedIndex: number;
+  isCorrect: boolean;
+};
 
 type Props = {
   question: Question;
+  onSubmit?: (result: SubmitResult) => void;
   onNext?: () => void;
+  isLoadingNext?: boolean;
 };
 
-export function QuestionInterface({ question, onNext }: Props) {
-  const [selected, setSelected] = useState<OptionId | null>(null);
+export function QuestionInterface({
+  question,
+  onSubmit,
+  onNext,
+  isLoadingNext = false,
+}: Props) {
+  const [selected, setSelected] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const correctId = question.correctOptionId;
-  const isCorrect = submitted && selected === correctId;
+  const correctIndex = question.correctOptionIndex;
+  const isCorrect = submitted && selected === correctIndex;
 
-  function handleSubmit() {
-    if (!selected) return;
-    setSubmitted(true);
+  function letterFor(i: number): string {
+    return LETTERS[i] ?? String(i + 1);
   }
 
-  function handleNext() {
-    setSelected(null);
-    setSubmitted(false);
-    onNext?.();
+  function handleSubmit() {
+    if (selected === null) return;
+    setSubmitted(true);
+    onSubmit?.({
+      selectedIndex: selected,
+      isCorrect: selected === correctIndex,
+    });
   }
 
   return (
@@ -51,11 +67,12 @@ export function QuestionInterface({ question, onNext }: Props) {
         </p>
 
         <ul className="mt-6 grid gap-3">
-          {question.options.map((opt) => {
-            const isSelected = selected === opt.id;
-            const isThisCorrect = submitted && opt.id === correctId;
+          {question.options.map((text, i) => {
+            const letter = letterFor(i);
+            const isSelected = selected === i;
+            const isThisCorrect = submitted && i === correctIndex;
             const isThisWrong =
-              submitted && isSelected && opt.id !== correctId;
+              submitted && isSelected && i !== correctIndex;
 
             let stateClasses =
               "border-foreground bg-background hover:bg-surface-2";
@@ -66,23 +83,22 @@ export function QuestionInterface({ question, onNext }: Props) {
               stateClasses =
                 "border-terminal-red bg-terminal-red/10 text-terminal-red";
             } else if (isSelected) {
-              stateClasses =
-                "border-accent bg-accent/10 text-accent";
+              stateClasses = "border-accent bg-accent/10 text-accent";
             }
 
             return (
-              <li key={opt.id}>
+              <li key={i}>
                 <button
                   type="button"
                   disabled={submitted}
-                  onClick={() => setSelected(opt.id)}
+                  onClick={() => setSelected(i)}
                   className={`flex w-full items-start gap-3 border-[3px] p-3 text-left text-sm transition-colors disabled:cursor-not-allowed ${stateClasses}`}
                 >
                   <span className="grid size-9 shrink-0 place-items-center border-[3px] border-current text-base font-black">
-                    {opt.id}
+                    {letter}
                   </span>
                   <span className="pt-1.5 font-sans text-sm sm:text-base">
-                    {opt.text}
+                    {text}
                   </span>
                 </button>
               </li>
@@ -93,7 +109,7 @@ export function QuestionInterface({ question, onNext }: Props) {
         {!submitted ? (
           <button
             type="button"
-            disabled={!selected}
+            disabled={selected === null}
             onClick={handleSubmit}
             className="mt-6 w-full border-4 border-foreground bg-accent px-5 py-3 text-sm font-black uppercase tracking-widest text-accent-fg shadow-[4px_4px_0_0_#000] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_0_#000] active:translate-x-0 active:translate-y-0 active:shadow-[2px_2px_0_0_#000] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted disabled:shadow-none"
           >
@@ -117,7 +133,7 @@ export function QuestionInterface({ question, onNext }: Props) {
               <span className="font-black">
                 {isCorrect
                   ? "> ACERTOU. +10 XP"
-                  : `> ERROU. CORRETA: ${correctId}`}
+                  : `> ERROU. CORRETA: ${letterFor(correctIndex)}`}
               </span>
             </div>
 
@@ -130,11 +146,21 @@ export function QuestionInterface({ question, onNext }: Props) {
 
             <button
               type="button"
-              onClick={handleNext}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 border-4 border-foreground bg-purple px-5 py-3 text-sm font-black uppercase tracking-widest text-foreground shadow-[4px_4px_0_0_#000] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-purple-hover hover:shadow-[6px_6px_0_0_#000] active:translate-x-0 active:translate-y-0 active:shadow-[2px_2px_0_0_#000]"
+              onClick={onNext}
+              disabled={isLoadingNext}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 border-4 border-foreground bg-purple px-5 py-3 text-sm font-black uppercase tracking-widest text-foreground shadow-[4px_4px_0_0_#000] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-purple-hover hover:shadow-[6px_6px_0_0_#000] active:translate-x-0 active:translate-y-0 active:shadow-[2px_2px_0_0_#000] disabled:cursor-wait disabled:bg-surface-2 disabled:text-muted disabled:shadow-none"
             >
-              <ChevronRight className="size-5" strokeWidth={4} />
-              PRÓXIMA QUESTÃO
+              {isLoadingNext ? (
+                <>
+                  <Loader2 className="size-5 animate-spin" strokeWidth={4} />
+                  GERANDO_QUESTÃO...
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="size-5" strokeWidth={4} />
+                  PRÓXIMA QUESTÃO
+                </>
+              )}
             </button>
           </div>
         )}

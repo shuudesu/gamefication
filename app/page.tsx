@@ -1,7 +1,7 @@
 import { Hash, Trophy, User } from "lucide-react";
 import { StaminaBar } from "@/components/StaminaBar";
 import { SubjectCard } from "@/components/SubjectCard";
-import { QuestionInterface } from "@/components/QuestionInterface";
+import { DailyQuestionBoard } from "@/components/DailyQuestionBoard";
 import type { Question, Subject } from "@/types";
 
 const SUBJECTS: Subject[] = [
@@ -61,21 +61,20 @@ const SUBJECTS: Subject[] = [
   },
 ];
 
+const DAILY_TOPIC_ID = "direito-constitucional-direitos-sociais";
+
 const DAILY_QUESTION: Question = {
   id: "0042",
   subjectCode: "DCO",
   statement:
     "Segundo a Constituição Federal de 1988, são considerados direitos sociais, EXCETO:",
   options: [
-    { id: "A", text: "Educação, saúde e alimentação." },
-    { id: "B", text: "Trabalho, moradia e transporte." },
-    { id: "C", text: "Liberdade religiosa e propriedade privada." },
-    {
-      id: "D",
-      text: "Segurança, previdência social e proteção à maternidade e à infância.",
-    },
+    "Educação, saúde e alimentação.",
+    "Trabalho, moradia e transporte.",
+    "Liberdade religiosa e propriedade privada.",
+    "Segurança, previdência social e proteção à maternidade e à infância.",
   ],
-  correctOptionId: "C",
+  correctOptionIndex: 2,
   explanation:
     "Liberdade religiosa e propriedade privada são classificados como direitos individuais (art. 5º), e não como direitos sociais (art. 6º).",
 };
@@ -149,7 +148,11 @@ export default function DashboardPage() {
 
         <section>
           <SectionTitle index="03" label="Questão do Dia" />
-          <QuestionInterface question={DAILY_QUESTION} />
+          <DailyQuestionBoard
+            topicId={DAILY_TOPIC_ID}
+            subjectCode={DAILY_QUESTION.subjectCode}
+            initialQuestion={DAILY_QUESTION}
+          />
         </section>
       </main>
 

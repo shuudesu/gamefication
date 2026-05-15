@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "PowerShell(node --version)",
-      "PowerShell(npm --version)"
+      "PowerShell(npm --version)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

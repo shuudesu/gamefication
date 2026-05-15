@@ -1,82 +1,34 @@
-import { Hash, Trophy, User } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Calendar, Hash, Trophy, User } from "lucide-react";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 import { StaminaBar } from "@/components/StaminaBar";
 import { SubjectCard } from "@/components/SubjectCard";
 import { DailyQuestionBoard } from "@/components/DailyQuestionBoard";
+import {
+  daysUntilExam,
+  deriveSubjectCode,
+  fetchActiveExam,
+  normalizeIconKey,
+} from "@/lib/active-exam";
 import type { Question, Subject } from "@/types";
 
-const SUBJECTS: Subject[] = [
-  {
-    id: "1",
-    name: "Direito Constitucional",
-    code: "DCO",
-    totalQuestions: 480,
-    answeredQuestions: 312,
-    accuracy: 78,
-    iconKey: "scale",
+const PLACEHOLDER_QUESTION_BY_SUBJECT: Record<string, Omit<Question, "subjectCode">> = {
+  default: {
+    id: "0001",
+    statement:
+      "Esta é uma questão de exemplo. Clique em PRÓXIMA QUESTÃO para gerar uma personalizada com a IA usando o seu edital.",
+    options: [
+      "Opção A — placeholder.",
+      "Opção B — placeholder.",
+      "Opção C — placeholder correta.",
+      "Opção D — placeholder.",
+    ],
+    correctOptionIndex: 2,
+    explanation:
+      "Esta questão é fictícia. A próxima será gerada via Claude Haiku 4.5 a partir do tópico priorizado do seu edital.",
   },
-  {
-    id: "2",
-    name: "Direito Administrativo",
-    code: "DAD",
-    totalQuestions: 360,
-    answeredQuestions: 198,
-    accuracy: 71,
-    iconKey: "shield",
-  },
-  {
-    id: "3",
-    name: "Língua Portuguesa",
-    code: "POR",
-    totalQuestions: 420,
-    answeredQuestions: 401,
-    accuracy: 84,
-    iconKey: "book",
-  },
-  {
-    id: "4",
-    name: "Raciocínio Lógico",
-    code: "RLM",
-    totalQuestions: 250,
-    answeredQuestions: 120,
-    accuracy: 65,
-    iconKey: "brain",
-  },
-  {
-    id: "5",
-    name: "Informática",
-    code: "INF",
-    totalQuestions: 200,
-    answeredQuestions: 88,
-    accuracy: 73,
-    iconKey: "cpu",
-  },
-  {
-    id: "6",
-    name: "Atualidades",
-    code: "ATU",
-    totalQuestions: 150,
-    answeredQuestions: 50,
-    accuracy: 60,
-    iconKey: "newspaper",
-  },
-];
-
-const DAILY_TOPIC_ID = "direito-constitucional-direitos-sociais";
-
-const DAILY_QUESTION: Question = {
-  id: "0042",
-  subjectCode: "DCO",
-  statement:
-    "Segundo a Constituição Federal de 1988, são considerados direitos sociais, EXCETO:",
-  options: [
-    "Educação, saúde e alimentação.",
-    "Trabalho, moradia e transporte.",
-    "Liberdade religiosa e propriedade privada.",
-    "Segurança, previdência social e proteção à maternidade e à infância.",
-  ],
-  correctOptionIndex: 2,
-  explanation:
-    "Liberdade religiosa e propriedade privada são classificados como direitos individuais (art. 5º), e não como direitos sociais (art. 6º).",
 };
 
 function SectionTitle({ index, label }: { index: string; label: string }) {
@@ -93,7 +45,39 @@ function SectionTitle({ index, label }: { index: string; label: string }) {
   );
 }
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const active = await fetchActiveExam();
+  if (!active) {
+    redirect("/onboarding");
+  }
+
+  const { exam, subjects } = active;
+  const days = daysUntilExam(exam.exam_date);
+
+  const subjectCards: Subject[] = subjects.map((s) => ({
+    id: s.id,
+    name: s.name,
+    code: deriveSubjectCode(s.name),
+    totalQuestions: Math.max(50, Math.round(s.weight * 500)),
+    answeredQuestions: 0,
+    accuracy: 0,
+    iconKey: normalizeIconKey(s.icon_key),
+  }));
+
+  const priorityTopic =
+    subjects
+      .flatMap((s) => s.topics.map((t) => ({ topic: t, subject: s })))
+      .sort((a, b) => priorityRank(a.topic.priority) - priorityRank(b.topic.priority))[0];
+
+  const dailyTopicId = priorityTopic?.topic.id ?? "default";
+  const dailySubjectName = priorityTopic?.subject.name ?? "Geral";
+  const dailySubjectCode = deriveSubjectCode(dailySubjectName);
+
+  const seedQuestion: Question = {
+    ...PLACEHOLDER_QUESTION_BY_SUBJECT.default,
+    subjectCode: dailySubjectCode,
+  };
+
   return (
     <div className="flex min-h-screen flex-1 flex-col bg-background">
       <header className="sticky top-0 z-10 border-b-4 border-foreground bg-background">
@@ -102,22 +86,31 @@ export default function DashboardPage() {
             <div className="grid size-10 place-items-center border-[3px] border-foreground bg-accent text-accent-fg">
               <Hash className="size-5" strokeWidth={4} />
             </div>
-            <div>
-              <p className="text-base sm:text-lg font-black uppercase tracking-widest leading-none">
-                GAMEFICATION
+            <div className="min-w-0">
+              <p className="truncate text-base sm:text-lg font-black uppercase tracking-widest leading-none">
+                {exam.name}
               </p>
               <p className="text-[10px] uppercase tracking-[0.25em] text-muted">
-                concurso.os v0.1
+                {[exam.banca, exam.cargo].filter(Boolean).join(" / ") ||
+                  "concurso.os v0.1"}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {days !== null ? (
+              <div className="hidden items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest sm:flex">
+                <Calendar className="size-4 text-accent" strokeWidth={3} />
+                <span className="font-bold">PROVA</span>
+                <span className="text-muted">|</span>
+                <span className="tabular-nums">{days}D</span>
+              </div>
+            ) : null}
             <div className="hidden items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest sm:flex">
               <Trophy className="size-4 text-accent" strokeWidth={3} />
-              <span className="font-bold">LVL 07</span>
+              <span className="font-bold">LVL 01</span>
               <span className="text-muted">|</span>
-              <span className="tabular-nums">2480 XP</span>
+              <span className="tabular-nums">0 XP</span>
             </div>
             <div className="flex items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest">
               <User className="size-4" strokeWidth={3} />
@@ -131,37 +124,59 @@ export default function DashboardPage() {
         <section>
           <SectionTitle index="01" label="Status Operacional" />
           <StaminaBar
-            streakDays={14}
-            goalDays={30}
-            weeklyHits={[true, true, true, true, true, false, true]}
+            streakDays={0}
+            goalDays={Math.max(7, days ?? 30)}
+            weeklyHits={[false, false, false, false, false, false, false]}
           />
         </section>
 
         <section>
-          <SectionTitle index="02" label="Matérias // Edital" />
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {SUBJECTS.map((s) => (
-              <SubjectCard key={s.id} subject={s} />
-            ))}
-          </div>
+          <SectionTitle
+            index="02"
+            label={`Matérias // ${subjects.length.toString().padStart(2, "0")}`}
+          />
+          {subjectCards.length > 0 ? (
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {subjectCards.map((s) => (
+                <SubjectCard key={s.id} subject={s} />
+              ))}
+            </div>
+          ) : (
+            <p className="border-4 border-foreground bg-surface p-5 text-xs uppercase tracking-widest text-muted">
+              &gt; nenhuma matéria extraída
+            </p>
+          )}
         </section>
 
         <section>
-          <SectionTitle index="03" label="Questão do Dia" />
+          <SectionTitle
+            index="03"
+            label={
+              priorityTopic
+                ? `Questão do Dia // ${priorityTopic.topic.name}`
+                : "Questão do Dia"
+            }
+          />
           <DailyQuestionBoard
-            topicId={DAILY_TOPIC_ID}
-            subjectCode={DAILY_QUESTION.subjectCode}
-            initialQuestion={DAILY_QUESTION}
+            topicId={dailyTopicId}
+            subjectCode={dailySubjectCode}
+            initialQuestion={seedQuestion}
           />
         </section>
       </main>
 
       <footer className="border-t-4 border-foreground bg-background">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 py-4 text-[10px] uppercase tracking-[0.25em] text-muted">
-          <span>&gt;_ sistema operacional</span>
+          <span>&gt;_ {exam.banca ?? "sistema"} / {exam.cargo ?? "cargo"}</span>
           <span>build_2026.05.15</span>
         </div>
       </footer>
     </div>
   );
+}
+
+function priorityRank(p: "high" | "medium" | "low"): number {
+  if (p === "high") return 0;
+  if (p === "medium") return 1;
+  return 2;
 }

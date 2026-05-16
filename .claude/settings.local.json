@@ -4,7 +4,8 @@
       "PowerShell(node --version)",
       "PowerShell(npm --version)",
       "mcp__Claude_Preview__preview_start",
-      "PowerShell(Write-Output \"=== empty form ===\"; try { Invoke-WebRequest -Uri \"http://localhost:3000/api/exams/intake\" -Method POST -UseBasicParsing -Body \"------\\\\r\\\\nContent-Disposition: form-data; name=`\"foo`\"\\\\r\\\\n\\\\r\\\\nbar\\\\r\\\\n------\\\\r\\\\n--`r`n\" -ContentType 'multipart/form-data; boundary=----' -ErrorAction Stop } catch { \"STATUS: \" + $_.Exception.Response.StatusCode.value__; $r = New-Object System.IO.StreamReader\\($_.Exception.Response.GetResponseStream\\(\\)\\); $r.ReadToEnd\\(\\) }; Write-Output \"\"; Write-Output \"=== GET should 405 ===\"; try { Invoke-WebRequest -Uri \"http://localhost:3000/api/exams/intake\" -Method GET -UseBasicParsing -ErrorAction Stop } catch { \"STATUS: \" + $_.Exception.Response.StatusCode.value__ })"
+      "PowerShell(Write-Output \"=== empty form ===\"; try { Invoke-WebRequest -Uri \"http://localhost:3000/api/exams/intake\" -Method POST -UseBasicParsing -Body \"------\\\\r\\\\nContent-Disposition: form-data; name=`\"foo`\"\\\\r\\\\n\\\\r\\\\nbar\\\\r\\\\n------\\\\r\\\\n--`r`n\" -ContentType 'multipart/form-data; boundary=----' -ErrorAction Stop } catch { \"STATUS: \" + $_.Exception.Response.StatusCode.value__; $r = New-Object System.IO.StreamReader\\($_.Exception.Response.GetResponseStream\\(\\)\\); $r.ReadToEnd\\(\\) }; Write-Output \"\"; Write-Output \"=== GET should 405 ===\"; try { Invoke-WebRequest -Uri \"http://localhost:3000/api/exams/intake\" -Method GET -UseBasicParsing -ErrorAction Stop } catch { \"STATUS: \" + $_.Exception.Response.StatusCode.value__ })",
+      "Bash(npx tsc *)"
     ]
   }
 }

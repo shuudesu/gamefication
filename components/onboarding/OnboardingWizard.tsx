@@ -8,6 +8,7 @@ import { ExtractionProgress } from "./ExtractionProgress";
 import { BlueprintReview } from "./BlueprintReview";
 import { CargoSelector } from "./CargoSelector";
 import { createClient as createBrowserClient } from "@/lib/supabase-browser";
+import { tusResumableUpload } from "@/lib/tus-upload";
 import type {
   CargoBlueprint,
   ExamRow,
@@ -35,9 +36,10 @@ export function OnboardingWizard() {
   async function uploadPdfToStorage(file: File): Promise<string> {
     const supabase = createBrowserClient();
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+    if (!user || !session) {
       throw new Error("Sessão expirada. Faça login novamente.");
     }
 
@@ -45,15 +47,35 @@ export function OnboardingWizard() {
       file.name.replace(/[^\w.\-]/g, "_").slice(0, 80) || "edital.pdf";
     const path = `${user.id}/${Date.now()}_${safe}`;
 
-    const { error: uploadErr } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, {
-        contentType: "application/pdf",
-        upsert: false,
+    // Arquivos > 6MB precisam de resumable upload (TUS). O standard
+    // `upload()` do SDK quebra ao tentar parsear "Request Entity Too Large"
+    // (texto plain) como JSON, mascarando o erro real.
+    const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
+    if (file.size > RESUMABLE_THRESHOLD) {
+      const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      await tusResumableUpload({
+        file,
+        path,
+        bucket: STORAGE_BUCKET,
+        projectUrl,
+        accessToken: session.access_token,
       });
+      return path;
+    }
 
-    if (uploadErr) {
-      throw new Error(`Upload Storage: ${uploadErr.message}`);
+    try {
+      const { error: uploadErr } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(path, file, {
+          contentType: "application/pdf",
+          upsert: false,
+        });
+      if (uploadErr) {
+        throw new Error(uploadErr.message);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Upload Storage (HTTP ${file.size}B): ${msg}`);
     }
     return path;
   }

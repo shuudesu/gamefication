@@ -53,12 +53,14 @@ export function OnboardingWizard() {
     const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
     if (file.size > RESUMABLE_THRESHOLD) {
       const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const apiKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
       await tusResumableUpload({
         file,
         path,
         bucket: STORAGE_BUCKET,
         projectUrl,
         accessToken: session.access_token,
+        apiKey,
       });
       return path;
     }

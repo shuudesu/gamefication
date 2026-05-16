@@ -13,6 +13,7 @@ type TusUploadArgs = {
   bucket: string;
   projectUrl: string;
   accessToken: string;
+  apiKey: string;
   contentType?: string;
   chunkSize?: number;
   onProgress?: (sent: number, total: number) => void;
@@ -44,6 +45,7 @@ export async function tusResumableUpload({
   bucket,
   projectUrl,
   accessToken,
+  apiKey,
   contentType,
   chunkSize = DEFAULT_CHUNK_SIZE,
   onProgress,
@@ -51,11 +53,19 @@ export async function tusResumableUpload({
   const endpoint = `${projectUrl.replace(/\/$/, "")}/storage/v1/upload/resumable`;
   const mime = contentType ?? (file as File).type ?? "application/octet-stream";
 
+  // O gateway do Supabase (Kong) exige `apikey` em todas as requests pra
+  // rotear corretamente o projeto. Sem ele, o JWT no Bearer pode não ser
+  // decodificado e `auth.uid()` retorna null no Postgres → RLS nega.
+  const authHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    apikey: apiKey,
+  };
+
   // 1) CREATE — anuncia tamanho + metadata, recebe Location.
   const createRes = await fetch(endpoint, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders,
       "Tus-Resumable": TUS_VERSION,
       "Upload-Length": String(file.size),
       "Upload-Metadata": encodeMetadata({
@@ -94,7 +104,7 @@ export async function tusResumableUpload({
     const patchRes = await fetch(resolvedUploadUrl, {
       method: "PATCH",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        ...authHeaders,
         "Tus-Resumable": TUS_VERSION,
         "Upload-Offset": String(offset),
         "Content-Type": "application/offset+octet-stream",

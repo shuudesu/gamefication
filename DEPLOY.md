@@ -64,7 +64,7 @@ git push -u origin main
 
 ### 2.2 Aplicar as migrations
 
-O sistema tem **3 migrations** que precisam ser aplicadas **na ordem**.
+O sistema tem **4 migrations** que precisam ser aplicadas **na ordem**.
 
 1. No Supabase Dashboard, painel esquerdo → **SQL Editor**
 2. Clique **+ New query**
@@ -72,7 +72,10 @@ O sistema tem **3 migrations** que precisam ser aplicadas **na ordem**.
 4. Aguarde "Success. No rows returned"
 5. **Migration 2** — New query → cole `supabase/migrations/20260516000000_exam_intake.sql` → Run
 6. **Migration 3** — New query → cole `supabase/migrations/20260517000000_auth_scoping.sql` → Run
-7. Confirme que cada uma rodou sem erro
+7. **Migration 4** — New query → cole `supabase/migrations/20260517010000_awaiting_cargo_status.sql` → Run
+8. Confirme que cada uma rodou sem erro
+
+> A migration 4 adiciona o valor `awaiting_cargo` ao enum `exam_processing_status`, usado quando um edital tem múltiplos cargos e o usuário ainda precisa escolher.
 
 > **Alternativa via Supabase CLI** (se já tiver instalada):
 > ```bash
@@ -216,10 +219,11 @@ Se algum check vier `false`, vá direto para [Troubleshooting](#troubleshooting)
 7. Suba o **PDF do edital do seu concurso** (ou cole a URL)
 8. Clique **`> ANALISAR_EDITAL`**
 9. Aguarde 20-50 segundos (Haiku 4.5 + tool use estruturado)
-10. Veja o preview com banca, cargo, data, vagas e matérias com pesos
-11. Clique **ENTRAR NO DASHBOARD**
-12. Dashboard mostra seu nome no header, suas matérias reais, e o tópico de maior prioridade na "Questão do Dia"
-13. Clique **PRÓXIMA QUESTÃO** → IA gera questão inédita para o tópico
+10. **Se o edital tem mais de um cargo:** aparece a tela `STEP 02 / SELECIONAR_CARGO` com todas as opções (vagas, salário, requisitos, total de matérias/tópicos). Clique no cargo desejado → `> CONFIRMAR_CARGO`. Só o conteúdo programático **daquele** cargo entra no seu dashboard.
+11. Veja o preview com banca, cargo escolhido, data, vagas e matérias com pesos
+12. Clique **ENTRAR NO DASHBOARD**
+13. Dashboard mostra seu nome no header, suas matérias reais, e o tópico de maior prioridade na "Questão do Dia"
+14. Clique **PRÓXIMA QUESTÃO** → IA gera questão inédita para o tópico
 
 ### 5.3 Validar cross-device
 

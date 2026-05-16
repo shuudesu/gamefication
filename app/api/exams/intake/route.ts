@@ -3,10 +3,11 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getCurrentUser } from "@/lib/supabase-server";
 import { extractBlueprint } from "@/lib/edital-extractor";
 import { extractPdfText, fetchUrlAsSource } from "@/lib/source-fetcher";
+import { finalizeCargoSelection } from "@/lib/exam-finalizer";
 import type {
+  CargoBlueprint,
   ExamBlueprint,
-  ExamSubjectRow,
-  ExamTopicRow,
+  ExamRow,
   IntakeResponse,
 } from "@/types";
 
@@ -140,12 +141,19 @@ export async function POST(req: Request) {
     );
   }
 
+  const isSingleCargo = blueprint.cargos.length === 1;
+  const initialStatus = isSingleCargo ? "ready" : "awaiting_cargo";
+  const initialIsActive = isSingleCargo;
+  const firstCargo: CargoBlueprint | undefined = blueprint.cargos[0];
+
   try {
-    await supabase
-      .from("exams")
-      .update({ is_active: false })
-      .eq("user_id", user.id)
-      .eq("is_active", true);
+    if (isSingleCargo) {
+      await supabase
+        .from("exams")
+        .update({ is_active: false })
+        .eq("user_id", user.id)
+        .eq("is_active", true);
+    }
 
     const { data: examRow, error: examErr } = await supabase
       .from("exams")
@@ -153,18 +161,19 @@ export async function POST(req: Request) {
         user_id: user.id,
         name: blueprint.name,
         banca: blueprint.banca,
-        cargo: blueprint.cargo,
+        cargo: isSingleCargo ? firstCargo?.name : null,
         exam_date: blueprint.exam_date,
-        vacancies: blueprint.vacancies,
+        vacancies: isSingleCargo ? firstCargo?.vagas : null,
         edital_pdf_path: storedPdfPath,
         edital_url: url,
         source_metadata: {
           had_pdf: Boolean(pdfPath),
           had_url: Boolean(url),
           chars: combined.length,
+          blueprint,
         },
-        processing_status: "ready",
-        is_active: true,
+        processing_status: initialStatus,
+        is_active: initialIsActive,
       })
       .select()
       .single();
@@ -173,57 +182,25 @@ export async function POST(req: Request) {
       throw new Error(examErr?.message ?? "Insert de exam falhou");
     }
 
-    const subjectRows: ExamSubjectRow[] = [];
-    const topicRows: ExamTopicRow[] = [];
-
-    for (let i = 0; i < blueprint.subjects.length; i++) {
-      const s = blueprint.subjects[i];
-      const { data: subjectRow, error: subjErr } = await supabase
-        .from("exam_subjects")
-        .insert({
-          exam_id: examRow.id,
-          name: s.name,
-          weight: s.weight,
-          order_index: i,
-          icon_key: s.icon_key ?? null,
-        })
-        .select()
-        .single();
-
-      if (subjErr || !subjectRow) {
-        throw new Error(subjErr?.message ?? "Insert de subject falhou");
-      }
-      subjectRows.push(subjectRow as ExamSubjectRow);
-
-      const topicsPayload = s.topics.map((t, j) => ({
-        exam_subject_id: subjectRow.id,
-        name: t.name,
-        priority: t.priority,
-        estimated_hours: t.estimated_hours ?? null,
-        order_index: j,
-      }));
-
-      if (topicsPayload.length > 0) {
-        const { data: topicsData, error: topicsErr } = await supabase
-          .from("exam_topics")
-          .insert(topicsPayload)
-          .select();
-
-        if (topicsErr) {
-          throw new Error(topicsErr.message);
-        }
-        topicRows.push(...((topicsData ?? []) as ExamTopicRow[]));
-      }
+    if (isSingleCargo && firstCargo) {
+      const finalized = await finalizeCargoSelection(
+        supabase,
+        examRow as ExamRow,
+        firstCargo
+      );
+      const response: IntakeResponse = {
+        status: "finalized",
+        exam: finalized.exam,
+        subjects: finalized.subjects,
+      };
+      return NextResponse.json(response, { status: 201 });
     }
 
     const response: IntakeResponse = {
-      exam: examRow,
-      subjects: subjectRows.map((s) => ({
-        ...s,
-        topics: topicRows.filter((t) => t.exam_subject_id === s.id),
-      })),
+      status: "awaiting_cargo",
+      exam: examRow as ExamRow,
+      cargos: blueprint.cargos,
     };
-
     return NextResponse.json(response, { status: 201 });
   } catch (err) {
     const details = err instanceof Error ? err.message : "Erro ao persistir";

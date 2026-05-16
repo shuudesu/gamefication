@@ -57,23 +57,31 @@ export type BlueprintSubject = {
   topics: BlueprintTopic[];
 };
 
+export type CargoBlueprint = {
+  name: string;
+  vagas: number | null;
+  salary: string | null;
+  requirements: string | null;
+  subjects: BlueprintSubject[];
+};
+
 export type ExamBlueprint = {
   name: string;
   banca: string | null;
-  cargo: string | null;
   exam_date: string | null;
-  vacancies: number | null;
-  subjects: BlueprintSubject[];
+  cargos: CargoBlueprint[];
 };
 
 export type ExamProcessingStatus =
   | "pending"
   | "extracting"
+  | "awaiting_cargo"
   | "ready"
   | "failed";
 
 export type ExamRow = {
   id: string;
+  user_id: string | null;
   name: string;
   banca: string | null;
   cargo: string | null;
@@ -110,7 +118,16 @@ export type ExamTopicRow = {
   created_at: string;
 };
 
-export type IntakeResponse = {
+export type IntakeFinalized = {
+  status: "finalized";
   exam: ExamRow;
   subjects: Array<ExamSubjectRow & { topics: ExamTopicRow[] }>;
 };
+
+export type IntakeCargoChoice = {
+  status: "awaiting_cargo";
+  exam: ExamRow;
+  cargos: CargoBlueprint[];
+};
+
+export type IntakeResponse = IntakeFinalized | IntakeCargoChoice;

@@ -6,10 +6,16 @@ import { AlertTriangle, Sparkles } from "lucide-react";
 import { EditalDropzone } from "./EditalDropzone";
 import { ExtractionProgress } from "./ExtractionProgress";
 import { BlueprintReview } from "./BlueprintReview";
+import { CargoSelector } from "./CargoSelector";
 import { createClient as createBrowserClient } from "@/lib/supabase-browser";
-import type { IntakeResponse } from "@/types";
+import type {
+  CargoBlueprint,
+  ExamRow,
+  IntakeFinalized,
+  IntakeResponse,
+} from "@/types";
 
-type Step = "input" | "processing" | "review";
+type Step = "input" | "processing" | "cargo_selection" | "review";
 
 const STORAGE_BUCKET = "editais";
 
@@ -18,8 +24,11 @@ export function OnboardingWizard() {
   const [step, setStep] = useState<Step>("input");
   const [pdf, setPdf] = useState<File | null>(null);
   const [url, setUrl] = useState("");
-  const [result, setResult] = useState<IntakeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [draftExam, setDraftExam] = useState<ExamRow | null>(null);
+  const [draftCargos, setDraftCargos] = useState<CargoBlueprint[]>([]);
+  const [finalResult, setFinalResult] = useState<IntakeFinalized | null>(null);
 
   const canSubmit = (pdf !== null || url.trim().length > 0) && step === "input";
 
@@ -49,6 +58,23 @@ export function OnboardingWizard() {
     return path;
   }
 
+  async function parseResponseOrThrow(res: Response) {
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text();
+      const hint =
+        res.status === 413 || /too large|entity/i.test(text)
+          ? "Resposta não-JSON do servidor (provável limite de proxy)."
+          : `Resposta não-JSON (HTTP ${res.status}): ${text.slice(0, 120)}`;
+      throw new Error(hint);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.details || data?.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
   async function handleSubmit() {
     if (!canSubmit) return;
     setError(null);
@@ -68,31 +94,34 @@ export function OnboardingWizard() {
           url: url.trim() || undefined,
         }),
       });
+      const data = (await parseResponseOrThrow(res)) as IntakeResponse;
 
-      const contentType = res.headers.get("content-type") ?? "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        const hint =
-          res.status === 413 || /too large|entity/i.test(text)
-            ? "Resposta não-JSON do servidor (provável limite de proxy). Tente recortar o PDF."
-            : `Resposta não-JSON do servidor (HTTP ${res.status}): ${text.slice(0, 120)}`;
-        throw new Error(hint);
+      if (data.status === "finalized") {
+        setFinalResult(data);
+        setStep("review");
+        return;
       }
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        const msg = data?.details || data?.error || `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      setResult(data as IntakeResponse);
-      setStep("review");
+      setDraftExam(data.exam);
+      setDraftCargos(data.cargos);
+      setStep("cargo_selection");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       setError(msg);
       setStep("input");
     }
+  }
+
+  async function handleCargoSelection(cargoIndex: number) {
+    if (!draftExam) return;
+    const res = await fetch("/api/exams/select-cargo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ examId: draftExam.id, cargoIndex }),
+    });
+    const data = (await parseResponseOrThrow(res)) as IntakeFinalized;
+    setFinalResult(data);
+    setStep("review");
   }
 
   function handleConfirm() {
@@ -104,8 +133,18 @@ export function OnboardingWizard() {
     return <ExtractionProgress />;
   }
 
-  if (step === "review" && result) {
-    return <BlueprintReview data={result} onConfirm={handleConfirm} />;
+  if (step === "cargo_selection" && draftExam) {
+    return (
+      <CargoSelector
+        exam={draftExam}
+        cargos={draftCargos}
+        onSelected={handleCargoSelection}
+      />
+    );
+  }
+
+  if (step === "review" && finalResult) {
+    return <BlueprintReview data={finalResult} onConfirm={handleConfirm} />;
   }
 
   return (
@@ -125,8 +164,7 @@ export function OnboardingWizard() {
       <p className="mb-6 font-sans text-sm leading-relaxed text-muted">
         Envie o PDF do edital, cole a URL da página do concurso, ou{" "}
         <span className="text-foreground font-bold">ambos</span>. A IA vai
-        identificar banca, matérias, pesos e tópicos para personalizar todo o
-        sistema.
+        identificar todos os cargos disponíveis e você escolhe qual estudar.
       </p>
 
       <EditalDropzone

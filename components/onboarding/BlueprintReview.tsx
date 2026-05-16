@@ -1,10 +1,10 @@
 "use client";
 
 import { ArrowRight, Building2, Calendar, Hash, Target } from "lucide-react";
-import type { IntakeResponse } from "@/types";
+import type { IntakeFinalized } from "@/types";
 
 type Props = {
-  data: IntakeResponse;
+  data: IntakeFinalized;
   onConfirm: () => void;
 };
 

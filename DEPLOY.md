@@ -64,15 +64,15 @@ git push -u origin main
 
 ### 2.2 Aplicar as migrations
 
-O sistema tem **2 migrations** que precisam ser aplicadas **na ordem**.
+O sistema tem **3 migrations** que precisam ser aplicadas **na ordem**.
 
 1. No Supabase Dashboard, painel esquerdo → **SQL Editor**
 2. Clique **+ New query**
-3. **Migration 1** — abra o arquivo `supabase/migrations/20260515000000_init_schema.sql` no seu editor, **copie o conteúdo inteiro**, cole no SQL Editor e clique **Run** (ou `Ctrl+Enter`)
+3. **Migration 1** — abra `supabase/migrations/20260515000000_init_schema.sql`, **copie o conteúdo inteiro**, cole no SQL Editor e clique **Run** (ou `Ctrl+Enter`)
 4. Aguarde "Success. No rows returned"
-5. Clique **+ New query** novamente
-6. **Migration 2** — abra `supabase/migrations/20260516000000_exam_intake.sql`, copie tudo, cole, **Run**
-7. Confirme que rodou sem erro
+5. **Migration 2** — New query → cole `supabase/migrations/20260516000000_exam_intake.sql` → Run
+6. **Migration 3** — New query → cole `supabase/migrations/20260517000000_auth_scoping.sql` → Run
+7. Confirme que cada uma rodou sem erro
 
 > **Alternativa via Supabase CLI** (se já tiver instalada):
 > ```bash
@@ -80,20 +80,33 @@ O sistema tem **2 migrations** que precisam ser aplicadas **na ordem**.
 > npx supabase db push
 > ```
 
-### 2.3 Verificar tabelas e bucket
+### 2.3 Verificar tabelas, bucket e trigger
 
 1. Painel esquerdo → **Table Editor** → confirme que existem:
    - `users`, `subjects`, `topics`, `questions`, `attempts`, `streaks`
-   - `exams`, `exam_subjects`, `exam_topics`, `study_plan_blocks`
+   - `exams` (com coluna `user_id`), `exam_subjects`, `exam_topics`, `study_plan_blocks`
 2. Painel esquerdo → **Storage** → confirme o bucket **`editais`** com:
    - Public: `false`
    - File size limit: 50 MB
    - Allowed MIME types: `application/pdf`
+3. Painel esquerdo → **Database** → **Triggers** → confirme `on_auth_user_created` em `auth.users` (cria automaticamente o perfil em `public.users` no signup)
 
-### 2.4 Pegar as 3 chaves do Supabase
+### 2.4 Configurar Auth (importante)
+
+1. Painel esquerdo → **Authentication** → **Providers** → confirme que **Email** está habilitado (padrão)
+2. **Authentication** → **URL Configuration** → adicione:
+   - **Site URL:** `https://SEU-APP.vercel.app` (depois que o Vercel der a URL)
+   - **Redirect URLs:** `https://SEU-APP.vercel.app/auth/callback` e `http://localhost:3000/auth/callback`
+3. **Opcional — desativar confirmação de email para testar mais rápido:**
+   - **Authentication** → **Sign In / Up** → desmarque **"Confirm email"**
+   - Em produção real, deixe **marcado** (mais seguro)
+
+### 2.5 Pegar as 3 chaves do Supabase
 
 1. Painel esquerdo → **Project Settings** (engrenagem no canto inferior) → **API**
 2. Anote 3 valores (você vai precisar deles para o `.env`):
+
+
 
 | O que pegar | Onde fica | Vai para a variável |
 |---|---|---|
@@ -182,7 +195,9 @@ Resposta esperada (status **200**):
     "supabase_service_role_key": true,
     "supabase_connection": true,
     "editais_bucket": true,
-    "exams_table": true
+    "exams_table": true,
+    "users_table": true,
+    "exams_user_scoped": true
   },
   "hint": "Tudo pronto. Acesse / para começar o onboarding."
 }
@@ -190,17 +205,28 @@ Resposta esperada (status **200**):
 
 Se algum check vier `false`, vá direto para [Troubleshooting](#troubleshooting).
 
-### 5.2 Onboarding completo
+### 5.2 Criar conta e fazer onboarding
 
 1. Acesse `https://SEU-APP.vercel.app/`
-2. Vai redirecionar para `/onboarding`
-3. Suba o **PDF do edital do seu concurso** (ou cole a URL da página do concurso)
-4. Clique **`> ANALISAR_EDITAL`**
-5. Aguarde 20-50 segundos (Haiku 4.5 + tool use estruturado)
-6. Veja o preview com banca, cargo, data, vagas e matérias com pesos
-7. Clique **ENTRAR NO DASHBOARD**
-8. Dashboard agora mostra suas matérias reais e o tópico de maior prioridade na "Questão do Dia"
-9. Clique **PRÓXIMA QUESTÃO** → IA gera questão inédita para o tópico
+2. Vai redirecionar para `/auth/login` (sem sessão)
+3. Clique **`> CADASTRAR`** → preencha **nome / email / senha** (mín. 6)
+4. Se você desativou "Confirm email" no Supabase: já loga direto
+5. Se está ligado: confira o email, clique no link de confirmação, depois volta no app e faz login
+6. Após login → vai pra `/onboarding`
+7. Suba o **PDF do edital do seu concurso** (ou cole a URL)
+8. Clique **`> ANALISAR_EDITAL`**
+9. Aguarde 20-50 segundos (Haiku 4.5 + tool use estruturado)
+10. Veja o preview com banca, cargo, data, vagas e matérias com pesos
+11. Clique **ENTRAR NO DASHBOARD**
+12. Dashboard mostra seu nome no header, suas matérias reais, e o tópico de maior prioridade na "Questão do Dia"
+13. Clique **PRÓXIMA QUESTÃO** → IA gera questão inédita para o tópico
+
+### 5.3 Validar cross-device
+
+1. Abra a mesma URL no celular (ou em janela anônima do PC)
+2. Faça login com o mesmo email/senha
+3. Tudo deve aparecer igual: seu edital, suas matérias, sua questão do dia
+4. Logout (botão no canto superior direito) → cai em `/auth/login`
 
 ---
 
@@ -265,6 +291,33 @@ Cabe tranquilo nos $5 iniciais.
 - A chave existe no Vercel mas o deploy ainda usa a versão antiga (sem as variáveis).
 - **Fix:** Deployments → Redeploy. Variáveis de ambiente só entram em deploys feitos **depois** de adicioná-las.
 
+### Signup retorna "Email já cadastrado" mas você nunca usou esse email
+
+- O Supabase mantém o usuário mesmo após exclusão "soft". Pode ter sido criado em teste anterior.
+- **Fix:** Supabase Dashboard → Authentication → Users → busque pelo email → delete permanentemente.
+
+### Não recebo email de confirmação após signup
+
+- O Supabase Free usa SMTP próprio com rate limit baixo (3-4 emails/h).
+- **Fix 1:** Verifique caixa de spam.
+- **Fix 2 (rápido):** desative confirmação em Authentication → Sign In/Up → "Confirm email" (só para dev/teste).
+- **Fix 3 (produção):** Authentication → Email Templates → conecte um SMTP próprio (Resend, SendGrid, etc.).
+
+### Após login, fico em loop redirect para /auth/login
+
+- A URL do Site no Supabase não bate com o domínio que você está acessando.
+- **Fix:** Authentication → URL Configuration → confirme **Site URL** e **Redirect URLs** apontando para o domínio correto (sem barra no final).
+
+### Health check `exams_user_scoped: false`
+
+- A migration 3 (`20260517000000_auth_scoping.sql`) não foi aplicada.
+- **Fix:** SQL Editor → cole o conteúdo da migration 3 → Run.
+
+### "permission denied for table exams" no console do browser
+
+- RLS está bloqueando porque o usuário não está autenticado ou a coluna `user_id` não está sendo preenchida.
+- **Fix:** confirme que migration 3 rodou. Refaça login. Crie um novo edital — os antigos (pré-auth) ficam órfãos e podem ser deletados pelo Table Editor.
+
 ### Erro 502 com "Modelo não retornou tool_use" durante extração
 
 - O texto extraído do PDF veio vazio (PDF escaneado sem OCR).
@@ -314,13 +367,14 @@ O Vercel detecta o push em `main` e faz redeploy automaticamente. Branches difer
 
 ## Apêndice — Próximos passos sugeridos
 
-O MVP atual cobre: ingestão de edital + dashboard adaptado + questão do dia personalizada. Para um produto mais completo, considere:
+O MVP atual cobre: auth completo + ingestão de edital + dashboard adaptado + questão do dia personalizada, com tudo salvo na conta do usuário. Para evoluir, considere:
 
-- **Auth** (Supabase Auth com Google/Email) — hoje qualquer pessoa com a URL pode usar
 - **Persistência de attempts** — salvar acertos/erros em `attempts`, calcular streak real de `streaks`
 - **Cronograma** — gerar `study_plan_blocks` a partir das horas/dia disponíveis × dias até a prova
 - **Múltiplos editais** — header com dropdown para alternar entre concursos
 - **Spaced repetition** — tópicos errados voltam priorizados na geração de questões
+- **OAuth** (Google/GitHub) — adicionar providers em Supabase → Authentication → Providers
+- **Recuperação de senha** — Supabase oferece `resetPasswordForEmail()` — basta criar `/auth/reset-password`
 
 ---
 

@@ -6,10 +6,12 @@ export const revalidate = 0;
 import { StaminaBar } from "@/components/StaminaBar";
 import { SubjectCard } from "@/components/SubjectCard";
 import { DailyQuestionBoard } from "@/components/DailyQuestionBoard";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 import {
   daysUntilExam,
   deriveSubjectCode,
   fetchActiveExam,
+  fetchUserProfile,
   normalizeIconKey,
 } from "@/lib/active-exam";
 import type { Question, Subject } from "@/types";
@@ -46,13 +48,19 @@ function SectionTitle({ index, label }: { index: string; label: string }) {
 }
 
 export default async function DashboardPage() {
-  const active = await fetchActiveExam();
+  const [active, profile] = await Promise.all([
+    fetchActiveExam(),
+    fetchUserProfile(),
+  ]);
   if (!active) {
     redirect("/onboarding");
   }
 
   const { exam, subjects } = active;
   const days = daysUntilExam(exam.exam_date);
+  const displayName = profile?.display_name ?? "OPERADOR";
+  const xpDisplay = profile?.xp ?? 0;
+  const levelDisplay = profile?.level ?? 1;
 
   const subjectCards: Subject[] = subjects.map((s) => ({
     id: s.id,
@@ -108,14 +116,19 @@ export default async function DashboardPage() {
             ) : null}
             <div className="hidden items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest sm:flex">
               <Trophy className="size-4 text-accent" strokeWidth={3} />
-              <span className="font-bold">LVL 01</span>
+              <span className="font-bold tabular-nums">
+                LVL {String(levelDisplay).padStart(2, "0")}
+              </span>
               <span className="text-muted">|</span>
-              <span className="tabular-nums">0 XP</span>
+              <span className="tabular-nums">{xpDisplay} XP</span>
             </div>
             <div className="flex items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest">
               <User className="size-4" strokeWidth={3} />
-              <span className="font-bold">OPERADOR</span>
+              <span className="font-bold truncate max-w-[10ch] sm:max-w-[16ch]">
+                {displayName}
+              </span>
             </div>
+            <LogoutButton />
           </div>
         </div>
       </header>

@@ -29,6 +29,8 @@ export async function GET() {
     supabase_connection: false,
     editais_bucket: false,
     exams_table: false,
+    users_table: false,
+    exams_user_scoped: false,
   };
 
   if (checks.supabase_url && checks.supabase_service_role_key) {
@@ -41,6 +43,18 @@ export async function GET() {
         .limit(1);
       checks.supabase_connection = !examsErr;
       checks.exams_table = !examsErr;
+
+      const { error: usersErr } = await supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .limit(1);
+      checks.users_table = !usersErr;
+
+      const { error: scopeErr } = await supabase
+        .from("exams")
+        .select("user_id", { head: true })
+        .limit(0);
+      checks.exams_user_scoped = !scopeErr;
 
       const { data: bucket } = await supabase.storage.getBucket("editais");
       checks.editais_bucket = Boolean(bucket);

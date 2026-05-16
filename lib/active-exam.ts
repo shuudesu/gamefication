@@ -1,10 +1,17 @@
-import { getSupabaseAdmin } from "./supabase-admin";
+import { createClient } from "./supabase-server";
 import type {
   ExamRow,
   ExamSubjectRow,
   ExamTopicRow,
   SubjectIconKey,
 } from "@/types";
+
+export type UserProfile = {
+  id: string;
+  display_name: string;
+  xp: number;
+  level: number;
+};
 
 const VALID_ICONS: SubjectIconKey[] = [
   "scale",
@@ -23,14 +30,20 @@ export type ActiveExamData = {
 export async function fetchActiveExam(): Promise<ActiveExamData | null> {
   let supabase;
   try {
-    supabase = getSupabaseAdmin();
+    supabase = await createClient();
   } catch {
     return null;
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
   const { data: exam, error: examErr } = await supabase
     .from("exams")
     .select("*")
+    .eq("user_id", user.id)
     .eq("is_active", true)
     .maybeSingle();
 
@@ -86,6 +99,36 @@ export function deriveSubjectCode(name: string): string {
     .join("")
     .slice(0, 4)
     .padEnd(3, "X");
+}
+
+export async function fetchUserProfile(): Promise<UserProfile | null> {
+  let supabase;
+  try {
+    supabase = await createClient();
+  } catch {
+    return null;
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, display_name, xp, level")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      id: user.id,
+      display_name: user.email?.split("@")[0] ?? "OPERADOR",
+      xp: 0,
+      level: 1,
+    };
+  }
+  return data as UserProfile;
 }
 
 export function daysUntilExam(iso: string | null): number | null {

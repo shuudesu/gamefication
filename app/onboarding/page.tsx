@@ -1,7 +1,13 @@
-import { Hash } from "lucide-react";
+import { Hash, User } from "lucide-react";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { fetchUserProfile } from "@/lib/active-exam";
 
-export default function OnboardingPage() {
+export const dynamic = "force-dynamic";
+
+export default async function OnboardingPage() {
+  const profile = await fetchUserProfile();
+  const displayName = profile?.display_name ?? "OPERADOR";
   return (
     <div className="flex min-h-screen flex-1 flex-col bg-background">
       <header className="border-b-4 border-foreground bg-background">
@@ -19,9 +25,15 @@ export default function OnboardingPage() {
               </p>
             </div>
           </div>
-          <span className="border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest">
-            ONBOARDING
-          </span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 border-[3px] border-foreground bg-surface px-3 py-1.5 text-[11px] uppercase tracking-widest">
+              <User className="size-4" strokeWidth={3} />
+              <span className="font-bold truncate max-w-[10ch] sm:max-w-[16ch]">
+                {displayName}
+              </span>
+            </div>
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

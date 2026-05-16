@@ -8,8 +8,13 @@ export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Sem env configurado: deixa passar tudo (deploy ainda não terminou).
-  if (!url || !anonKey) {
+  // Sem env configurado ou ainda com placeholder: deixa passar tudo
+  // para que /api/health responda e a UI carregue com erros amigáveis.
+  if (
+    !url ||
+    !anonKey ||
+    (!url.startsWith("http://") && !url.startsWith("https://"))
+  ) {
     return NextResponse.next({ request });
   }
 

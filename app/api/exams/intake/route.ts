@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { getCurrentUser } from "@/lib/supabase-server";
 import { extractBlueprint } from "@/lib/edital-extractor";
 import { extractPdfText, fetchUrlAsSource } from "@/lib/source-fetcher";
 import type {
@@ -16,6 +17,11 @@ const PDF_PLACEHOLDER_KEY = "your-anthropic-api-key-here";
 const STORAGE_BUCKET = "editais";
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === PDF_PLACEHOLDER_KEY) {
     return NextResponse.json(
@@ -75,7 +81,7 @@ export async function POST(req: Request) {
       const buffer = Buffer.from(await pdf.arrayBuffer());
       const pdfText = await extractPdfText(buffer);
       sources.push(pdfText);
-      pdfStoragePath = await uploadPdf(supabase, buffer, pdf.name);
+      pdfStoragePath = await uploadPdf(supabase, buffer, pdf.name, user.id);
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro no PDF";
       return NextResponse.json(
@@ -91,7 +97,12 @@ export async function POST(req: Request) {
       sources.push(fetched.text);
       if (!pdfStoragePath && fetched.pdfBuffer) {
         const filename = inferFilenameFromUrl(url);
-        pdfStoragePath = await uploadPdf(supabase, fetched.pdfBuffer, filename);
+        pdfStoragePath = await uploadPdf(
+          supabase,
+          fetched.pdfBuffer,
+          filename,
+          user.id
+        );
       }
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro na URL";
@@ -121,11 +132,13 @@ export async function POST(req: Request) {
     await supabase
       .from("exams")
       .update({ is_active: false })
+      .eq("user_id", user.id)
       .eq("is_active", true);
 
     const { data: examRow, error: examErr } = await supabase
       .from("exams")
       .insert({
+        user_id: user.id,
         name: blueprint.name,
         banca: blueprint.banca,
         cargo: blueprint.cargo,
@@ -212,10 +225,11 @@ export async function POST(req: Request) {
 async function uploadPdf(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   buffer: Buffer,
-  filename: string
+  filename: string,
+  userId: string
 ): Promise<string> {
   const safe = filename.replace(/[^\w.\-]/g, "_").slice(0, 80) || "edital.pdf";
-  const path = `${Date.now()}_${safe}`;
+  const path = `${userId}/${Date.now()}_${safe}`;
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)
     .upload(path, buffer, {

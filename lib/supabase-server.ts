@@ -5,9 +5,13 @@ export async function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!url || !anonKey) {
+  if (
+    !url ||
+    !anonKey ||
+    (!url.startsWith("http://") && !url.startsWith("https://"))
+  ) {
     throw new Error(
-      "Missing Supabase envs (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)."
+      "Missing or invalid Supabase envs (NEXT_PUBLIC_SUPABASE_URL must be http/https, NEXT_PUBLIC_SUPABASE_ANON_KEY required)."
     );
   }
 

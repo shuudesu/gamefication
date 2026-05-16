@@ -6,9 +6,12 @@ import { AlertTriangle, Sparkles } from "lucide-react";
 import { EditalDropzone } from "./EditalDropzone";
 import { ExtractionProgress } from "./ExtractionProgress";
 import { BlueprintReview } from "./BlueprintReview";
+import { createClient as createBrowserClient } from "@/lib/supabase-browser";
 import type { IntakeResponse } from "@/types";
 
 type Step = "input" | "processing" | "review";
+
+const STORAGE_BUCKET = "editais";
 
 export function OnboardingWizard() {
   const router = useRouter();
@@ -20,19 +23,61 @@ export function OnboardingWizard() {
 
   const canSubmit = (pdf !== null || url.trim().length > 0) && step === "input";
 
+  async function uploadPdfToStorage(file: File): Promise<string> {
+    const supabase = createBrowserClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error("Sessão expirada. Faça login novamente.");
+    }
+
+    const safe =
+      file.name.replace(/[^\w.\-]/g, "_").slice(0, 80) || "edital.pdf";
+    const path = `${user.id}/${Date.now()}_${safe}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, file, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      throw new Error(`Upload Storage: ${uploadErr.message}`);
+    }
+    return path;
+  }
+
   async function handleSubmit() {
     if (!canSubmit) return;
     setError(null);
     setStep("processing");
+
     try {
-      const form = new FormData();
-      if (pdf) form.append("pdf", pdf);
-      if (url.trim()) form.append("url", url.trim());
+      let pdfPath: string | undefined;
+      if (pdf) {
+        pdfPath = await uploadPdfToStorage(pdf);
+      }
 
       const res = await fetch("/api/exams/intake", {
         method: "POST",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdfPath,
+          url: url.trim() || undefined,
+        }),
       });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        const hint =
+          res.status === 413 || /too large|entity/i.test(text)
+            ? "Resposta não-JSON do servidor (provável limite de proxy). Tente recortar o PDF."
+            : `Resposta não-JSON do servidor (HTTP ${res.status}): ${text.slice(0, 120)}`;
+        throw new Error(hint);
+      }
 
       const data = await res.json();
 
@@ -111,7 +156,8 @@ export function OnboardingWizard() {
       </button>
 
       <p className="mt-3 text-center font-sans text-[11px] text-muted">
-        Modelo: Claude Haiku 4.5 com tool use estruturado. ~$0.30/edital.
+        Modelo: Claude Haiku 4.5 com tool use estruturado. PDF vai direto pro
+        Storage do Supabase (sem limite de 4.5MB do Vercel).
       </p>
     </section>
   );

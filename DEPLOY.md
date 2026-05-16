@@ -281,6 +281,15 @@ Cabe tranquilo nos $5 iniciais.
 - **Fix opção 1:** corte o PDF para apenas as páginas do conteúdo programático antes de enviar.
 - **Fix opção 2:** assine o Vercel Pro ($20/mês) e suba `maxDuration` em `vercel.json` para 300.
 
+### "Unexpected token 'R', \"Request En\"... is not valid JSON" no clique de ANALISAR_EDITAL
+
+- Esse erro acontecia quando o PDF passava de 4.5MB (limite do body de funções serverless no Vercel). O proxy do Vercel retornava `Request Entity Too Large` em HTML e o frontend chocava ao parsear.
+- **Já está corrigido** desde o commit `direct browser-to-storage upload`: o navegador faz upload direto pro Supabase Storage e a rota recebe só o path. PDFs até 50MB passam sem tocar no Vercel.
+- Se mesmo assim aparecer, confira:
+  - Você está logado (sem sessão o upload de Storage falha com RLS).
+  - A migration `20260517000000_auth_scoping.sql` foi aplicada (cria policies de Storage por `user_id`).
+  - O bucket `editais` existe e tem `application/pdf` no allowed_mime_types.
+
 ### Build falha com erro do `pdf-parse` ou `pdfjs-dist`
 
 - Versão do Node muito antiga.

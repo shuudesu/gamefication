@@ -16,6 +16,11 @@ export const maxDuration = 60;
 const PDF_PLACEHOLDER_KEY = "your-anthropic-api-key-here";
 const STORAGE_BUCKET = "editais";
 
+type RequestBody = {
+  pdfPath?: string;
+  url?: string;
+};
+
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -30,35 +35,36 @@ export async function POST(req: Request) {
     );
   }
 
-  let formData: FormData;
+  let body: RequestBody;
   try {
-    formData = await req.formData();
+    body = (await req.json()) as RequestBody;
   } catch {
     return NextResponse.json(
-      { error: "Espera multipart/form-data" },
+      { error: "Espera JSON body com { pdfPath?, url? }" },
       { status: 400 }
     );
   }
 
-  const pdfField = formData.get("pdf");
-  const urlField = formData.get("url");
-  const pdf = pdfField instanceof File && pdfField.size > 0 ? pdfField : null;
+  const pdfPath =
+    typeof body.pdfPath === "string" && body.pdfPath.trim().length > 0
+      ? body.pdfPath.trim()
+      : null;
   const url =
-    typeof urlField === "string" && urlField.trim().length > 0
-      ? urlField.trim()
+    typeof body.url === "string" && body.url.trim().length > 0
+      ? body.url.trim()
       : null;
 
-  if (!pdf && !url) {
+  if (!pdfPath && !url) {
     return NextResponse.json(
-      { error: "Forneça ao menos um: arquivo PDF ('pdf') ou URL ('url')" },
+      { error: "Forneça ao menos um: pdfPath (Storage) ou url" },
       { status: 400 }
     );
   }
 
-  if (pdf && pdf.type !== "application/pdf") {
+  if (pdfPath && !pdfPath.startsWith(`${user.id}/`)) {
     return NextResponse.json(
-      { error: "Arquivo deve ser application/pdf" },
-      { status: 400 }
+      { error: "pdfPath fora da pasta do usuário" },
+      { status: 403 }
     );
   }
 
@@ -74,18 +80,24 @@ export async function POST(req: Request) {
   }
 
   const sources: string[] = [];
-  let pdfStoragePath: string | null = null;
+  let storedPdfPath: string | null = null;
 
-  if (pdf) {
+  if (pdfPath) {
     try {
-      const buffer = Buffer.from(await pdf.arrayBuffer());
+      const { data, error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .download(pdfPath);
+      if (error || !data) {
+        throw new Error(error?.message ?? "Arquivo não encontrado no Storage");
+      }
+      const buffer = Buffer.from(await data.arrayBuffer());
       const pdfText = await extractPdfText(buffer);
       sources.push(pdfText);
-      pdfStoragePath = await uploadPdf(supabase, buffer, pdf.name, user.id);
+      storedPdfPath = pdfPath;
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro no PDF";
       return NextResponse.json(
-        { error: "Falha ao processar PDF", details },
+        { error: "Falha ao processar PDF do Storage", details },
         { status: 400 }
       );
     }
@@ -95,9 +107,9 @@ export async function POST(req: Request) {
     try {
       const fetched = await fetchUrlAsSource(url);
       sources.push(fetched.text);
-      if (!pdfStoragePath && fetched.pdfBuffer) {
+      if (!storedPdfPath && fetched.pdfBuffer) {
         const filename = inferFilenameFromUrl(url);
-        pdfStoragePath = await uploadPdf(
+        storedPdfPath = await uploadPdf(
           supabase,
           fetched.pdfBuffer,
           filename,
@@ -144,10 +156,10 @@ export async function POST(req: Request) {
         cargo: blueprint.cargo,
         exam_date: blueprint.exam_date,
         vacancies: blueprint.vacancies,
-        edital_pdf_path: pdfStoragePath,
+        edital_pdf_path: storedPdfPath,
         edital_url: url,
         source_metadata: {
-          had_pdf: Boolean(pdf),
+          had_pdf: Boolean(pdfPath),
           had_url: Boolean(url),
           chars: combined.length,
         },

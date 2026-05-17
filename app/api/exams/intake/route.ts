@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getCurrentUser } from "@/lib/supabase-server";
-import { extractBlueprint } from "@/lib/edital-extractor";
-import { extractPdfText, fetchUrlAsSource } from "@/lib/source-fetcher";
+import { extractBlueprint, type BlueprintSource } from "@/lib/edital-extractor";
+import { fetchUrlAsSource } from "@/lib/source-fetcher";
 import { finalizeCargoSelection } from "@/lib/exam-finalizer";
 import type {
   CargoBlueprint,
@@ -23,6 +23,22 @@ type RequestBody = {
 };
 
 export async function POST(req: Request) {
+  try {
+    return await handlePOST(req);
+  } catch (err) {
+    // Catch-all: garante que qualquer exception não tratada vire JSON
+    // em vez da página HTML de erro do Next.js, que quebra o cliente.
+    console.error("[/api/exams/intake] unhandled error:", err);
+    const details = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    const stack = err instanceof Error ? err.stack?.split("\n").slice(0, 6).join(" | ") : undefined;
+    return NextResponse.json(
+      { error: "Erro interno não tratado", details, stack },
+      { status: 500 }
+    );
+  }
+}
+
+async function handlePOST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -80,25 +96,31 @@ export async function POST(req: Request) {
     );
   }
 
-  const sources: string[] = [];
+  const sources: BlueprintSource[] = [];
   let storedPdfPath: string | null = null;
+  let totalChars = 0;
 
   if (pdfPath) {
     try {
-      const { data, error } = await supabase.storage
+      // Signed URL de 10min: Anthropic baixa o PDF direto da Supabase.
+      // Sem download nem extração de texto no nosso lado — elimina o
+      // gargalo de tempo/memória do pdf-parse pra PDFs grandes.
+      const { data: signed, error: signErr } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .download(pdfPath);
-      if (error || !data) {
-        throw new Error(error?.message ?? "Arquivo não encontrado no Storage");
+        .createSignedUrl(pdfPath, 600);
+      if (signErr || !signed?.signedUrl) {
+        throw new Error(signErr?.message ?? "Falha ao gerar signed URL");
       }
-      const buffer = Buffer.from(await data.arrayBuffer());
-      const pdfText = await extractPdfText(buffer);
-      sources.push(pdfText);
+      sources.push({
+        type: "pdf_url",
+        url: signed.signedUrl,
+        label: "edital.pdf (Storage)",
+      });
       storedPdfPath = pdfPath;
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro no PDF";
       return NextResponse.json(
-        { error: "Falha ao processar PDF do Storage", details },
+        { error: "Falha ao preparar PDF do Storage", details },
         { status: 400 }
       );
     }
@@ -107,15 +129,37 @@ export async function POST(req: Request) {
   if (url) {
     try {
       const fetched = await fetchUrlAsSource(url);
-      sources.push(fetched.text);
-      if (!storedPdfPath && fetched.pdfBuffer) {
-        const filename = inferFilenameFromUrl(url);
-        storedPdfPath = await uploadPdf(
-          supabase,
-          fetched.pdfBuffer,
-          filename,
-          user.id
-        );
+
+      if (fetched.pdfBuffer) {
+        // URL retornou PDF: salva no Storage e gera signed URL pra Anthropic.
+        if (!storedPdfPath) {
+          const filename = inferFilenameFromUrl(url);
+          storedPdfPath = await uploadPdf(
+            supabase,
+            fetched.pdfBuffer,
+            filename,
+            user.id
+          );
+        }
+        const { data: signed, error: signErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(storedPdfPath, 600);
+        if (signErr || !signed?.signedUrl) {
+          throw new Error(signErr?.message ?? "Falha ao gerar signed URL");
+        }
+        sources.push({
+          type: "pdf_url",
+          url: signed.signedUrl,
+          label: `URL: ${url}`,
+        });
+      } else {
+        // URL retornou HTML/texto: vai como texto plain.
+        sources.push({
+          type: "text",
+          value: fetched.text,
+          label: `URL: ${url}`,
+        });
+        totalChars += fetched.text.length;
       }
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro na URL";
@@ -126,13 +170,9 @@ export async function POST(req: Request) {
     }
   }
 
-  const combined = sources
-    .map((s, i) => `===== FONTE ${i + 1} =====\n${s}`)
-    .join("\n\n");
-
   let blueprint: ExamBlueprint;
   try {
-    blueprint = await extractBlueprint(combined, apiKey);
+    blueprint = await extractBlueprint(sources, apiKey);
   } catch (err) {
     const details = err instanceof Error ? err.message : "Erro na extração";
     return NextResponse.json(
@@ -169,7 +209,8 @@ export async function POST(req: Request) {
         source_metadata: {
           had_pdf: Boolean(pdfPath),
           had_url: Boolean(url),
-          chars: combined.length,
+          text_chars: totalChars,
+          source_count: sources.length,
           blueprint,
         },
         processing_status: initialStatus,

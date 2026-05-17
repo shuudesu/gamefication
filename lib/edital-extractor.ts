@@ -121,17 +121,50 @@ const TOOL: Tool = {
 
 const MAX_INPUT_CHARS = 150_000;
 
+export type BlueprintSource =
+  | { type: "text"; value: string; label?: string }
+  | { type: "pdf_url"; url: string; label?: string };
+
 export async function extractBlueprint(
-  rawText: string,
+  sources: BlueprintSource[],
   apiKey: string
 ): Promise<ExamBlueprint> {
-  const trimmed =
-    rawText.length > MAX_INPUT_CHARS
-      ? rawText.slice(0, MAX_INPUT_CHARS) +
-        "\n\n[... texto truncado por limite de tamanho ...]"
-      : rawText;
+  if (sources.length === 0) {
+    throw new Error("Nenhuma fonte fornecida pra extração");
+  }
 
   const client = new Anthropic({ apiKey });
+
+  // Monta os content blocks: documento PDF vai como bloco "document" com
+  // source URL (Anthropic baixa direto, sem onerar nossa function).
+  // Texto vai como bloco "text" truncado pra não estourar context window.
+  const content: Anthropic.ContentBlockParam[] = [];
+  let textBudget = MAX_INPUT_CHARS;
+
+  for (const src of sources) {
+    if (src.type === "pdf_url") {
+      content.push({
+        type: "document",
+        source: { type: "url", url: src.url },
+        ...(src.label ? { title: src.label } : {}),
+      });
+    } else {
+      const label = src.label ? `[${src.label}]\n` : "";
+      const remaining = Math.max(0, textBudget - label.length);
+      const slice =
+        src.value.length > remaining
+          ? src.value.slice(0, remaining) +
+            "\n[... texto truncado por limite de tamanho ...]"
+          : src.value;
+      textBudget = Math.max(0, textBudget - (label.length + slice.length));
+      content.push({ type: "text", text: `${label}${slice}` });
+    }
+  }
+
+  content.push({
+    type: "text",
+    text: "Extraia a estrutura do edital chamando a tool extract_exam_blueprint exatamente uma vez.",
+  });
 
   const response = await client.messages.create({
     model: MODEL,
@@ -145,12 +178,7 @@ export async function extractBlueprint(
     ],
     tools: [TOOL],
     tool_choice: { type: "tool", name: TOOL.name },
-    messages: [
-      {
-        role: "user",
-        content: `TEXTO DO EDITAL / FONTE:\n\n${trimmed}`,
-      },
-    ],
+    messages: [{ role: "user", content }],
   });
 
   const toolUse = response.content.find((b) => b.type === "tool_use");

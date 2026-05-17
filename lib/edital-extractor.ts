@@ -190,27 +190,54 @@ export async function extractBlueprint(
   }
 
   const input = toolUse.input as Record<string, unknown>;
-  if (!isValidBlueprint(input)) {
-    throw new Error("Payload do tool_use não bate com schema esperado");
+  const validation = validateBlueprint(input);
+  if (!validation.ok) {
+    // Loga o payload completo no Vercel pra postmortem + propaga
+    // resumo pro cliente. Sem isso é impossível debugar regressões
+    // de schema do modelo.
+    console.error("[extractBlueprint] payload inválido:", {
+      reason: validation.reason,
+      payload: JSON.stringify(input).slice(0, 4000),
+    });
+    throw new Error(
+      `Payload do tool_use não bate com schema esperado (${validation.reason})`
+    );
   }
 
-  return normalizeBlueprint(input);
+  return normalizeBlueprint(input as unknown as ExamBlueprint);
 }
 
-function isValidBlueprint(v: unknown): v is ExamBlueprint {
-  if (!v || typeof v !== "object") return false;
+type ValidationResult = { ok: true } | { ok: false; reason: string };
+
+function validateBlueprint(v: unknown): ValidationResult {
+  if (!v || typeof v !== "object") return { ok: false, reason: "não é objeto" };
   const o = v as Record<string, unknown>;
-  if (typeof o.name !== "string" || o.name.trim().length === 0) return false;
-  if (!Array.isArray(o.cargos) || o.cargos.length === 0) return false;
-  return o.cargos.every((c) => {
-    if (!c || typeof c !== "object") return false;
+  if (typeof o.name !== "string" || o.name.trim().length === 0) {
+    return { ok: false, reason: `name ausente ou vazio (got ${typeof o.name})` };
+  }
+  if (!Array.isArray(o.cargos)) {
+    return { ok: false, reason: `cargos não é array (got ${typeof o.cargos})` };
+  }
+  if (o.cargos.length === 0) {
+    return { ok: false, reason: "cargos vazio (length 0)" };
+  }
+  for (let i = 0; i < o.cargos.length; i++) {
+    const c = o.cargos[i];
+    if (!c || typeof c !== "object") {
+      return { ok: false, reason: `cargo[${i}] não é objeto` };
+    }
     const cg = c as Record<string, unknown>;
-    return (
-      typeof cg.name === "string" &&
-      cg.name.trim().length > 0 &&
-      Array.isArray(cg.subjects)
-    );
-  });
+    if (typeof cg.name !== "string" || cg.name.trim().length === 0) {
+      return { ok: false, reason: `cargo[${i}].name ausente ou vazio` };
+    }
+    if (!Array.isArray(cg.subjects)) {
+      return {
+        ok: false,
+        reason: `cargo[${i}].subjects não é array (got ${typeof cg.subjects})`,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 function normalizeCargo(c: CargoBlueprint): CargoBlueprint {

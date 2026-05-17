@@ -1,5 +1,4 @@
-"use client";
-
+import Link from "next/link";
 import {
   ArrowRight,
   BookOpen,
@@ -23,19 +22,17 @@ const ICONS: Record<SubjectIconKey, LucideIcon> = {
 
 type Props = {
   subject: Subject;
-  onSelect?: (subject: Subject) => void;
 };
 
-export function SubjectCard({ subject, onSelect }: Props) {
+export function SubjectCard({ subject }: Props) {
   const Icon = ICONS[subject.iconKey];
   const total = Math.max(subject.totalQuestions, 0);
   const answered = Math.min(subject.answeredQuestions, total);
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect?.(subject)}
+    <Link
+      href={`/subjects/${subject.id}`}
       className="group block w-full text-left border-4 border-foreground bg-surface p-5 shadow-[6px_6px_0_0_#000] transition-transform duration-100 hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[10px_10px_0_0_#000] active:translate-x-0 active:translate-y-0 active:shadow-[2px_2px_0_0_#000] focus:outline-none focus-visible:ring-4 focus-visible:ring-accent"
     >
       <div className="flex items-start justify-between">
@@ -80,6 +77,6 @@ export function SubjectCard({ subject, onSelect }: Props) {
           />
         </span>
       </div>
-    </button>
+    </Link>
   );
 }

@@ -78,6 +78,7 @@ export default async function DashboardPage() {
       .sort((a, b) => priorityRank(a.topic.priority) - priorityRank(b.topic.priority))[0];
 
   const dailyTopicId = priorityTopic?.topic.id ?? "default";
+  const dailyTopicName = priorityTopic?.topic.name;
   const dailySubjectName = priorityTopic?.subject.name ?? "Geral";
   const dailySubjectCode = deriveSubjectCode(dailySubjectName);
 
@@ -172,6 +173,8 @@ export default async function DashboardPage() {
           />
           <DailyQuestionBoard
             topicId={dailyTopicId}
+            topicName={dailyTopicName}
+            subjectName={priorityTopic ? dailySubjectName : undefined}
             subjectCode={dailySubjectCode}
             initialQuestion={seedQuestion}
           />

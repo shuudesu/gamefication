@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { getCurrentUser } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
-const SYSTEM_PROMPT =
-  "Você é um examinador da banca Instituto Nosso Rumo. Gere UMA questão inédita de múltipla escolha (5 alternativas) sobre o tópico solicitado, em nível de Ensino Médio. Retorne ESTRITAMENTE um objeto JSON contendo: question_text, options (array de 5 strings), correct_answer (index de 0 a 4) e explanation.";
-
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "claude-haiku-4-5-20251001";
 const MAX_HISTORY_ITEMS = 10;
+
+const SYSTEM_PROMPT = `Você é um examinador de banca de concurso público brasileiro. Gere UMA questão inédita de múltipla escolha (5 alternativas) sobre o tópico solicitado, em nível compatível com o cargo do concurso.
+
+Regras:
+- Linguagem do português brasileiro formal de banca (Cebraspe, FCC, FGV, Vunesp, Instituto Nosso Rumo).
+- Enunciado claro, sem ambiguidade. Pode usar texto de apoio se o tópico exigir.
+- 5 alternativas plausíveis, apenas UMA correta.
+- Explanation: justificativa curta (2-4 frases) explicando POR QUE a correta é correta E descartando 1-2 distratores mais óbvios.
+- Se o usuário tem histórico de erros, foque em conceitos onde demonstrou dificuldade SEM repetir literalmente as questões anteriores.
+- Retorne ESTRITAMENTE um objeto JSON: { "question_text": "...", "options": ["A","B","C","D","E"], "correct_answer": N, "explanation": "..." }`;
 
 type ErrorHistoryItem = {
   question_text: string;
@@ -18,6 +27,8 @@ type ErrorHistoryItem = {
 
 type RequestBody = {
   topicId: string;
+  topicName?: string;
+  subjectName?: string;
   errorHistory?: ErrorHistoryItem[];
 };
 
@@ -48,7 +59,18 @@ function parseRequestBody(value: unknown): RequestBody | null {
     Array.isArray(v.errorHistory) && v.errorHistory.every(isErrorHistoryItem)
       ? (v.errorHistory as ErrorHistoryItem[])
       : undefined;
-  return { topicId: v.topicId.trim(), errorHistory: history };
+  return {
+    topicId: v.topicId.trim(),
+    topicName:
+      typeof v.topicName === "string" && v.topicName.trim().length > 0
+        ? v.topicName.trim()
+        : undefined,
+    subjectName:
+      typeof v.subjectName === "string" && v.subjectName.trim().length > 0
+        ? v.subjectName.trim()
+        : undefined,
+    errorHistory: history,
+  };
 }
 
 function isGeneratedQuestion(value: unknown): value is GeneratedQuestion {
@@ -79,15 +101,22 @@ function extractJsonObject(text: string): unknown {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
-function buildUserMessage(
-  topicId: string,
-  errorHistory: ErrorHistoryItem[] | undefined
-): string {
-  const lines = [`TÓPICO_ID: ${topicId}`];
+function buildUserMessage(body: RequestBody): string {
+  const lines: string[] = [];
+  if (body.subjectName) {
+    lines.push(`MATÉRIA: ${body.subjectName}`);
+  }
+  if (body.topicName) {
+    lines.push(`TÓPICO: ${body.topicName}`);
+  } else {
+    // Fallback: passar o id é inútil pra Claude, mas mantém compat
+    // com chamadas antigas que ainda não foram migradas.
+    lines.push(`TÓPICO_ID: ${body.topicId}`);
+  }
 
-  if (errorHistory && errorHistory.length > 0) {
+  if (body.errorHistory && body.errorHistory.length > 0) {
     lines.push("", "HISTÓRICO DE ERROS DO USUÁRIO (recentes):");
-    errorHistory.slice(-MAX_HISTORY_ITEMS).forEach((e, i) => {
+    body.errorHistory.slice(-MAX_HISTORY_ITEMS).forEach((e, i) => {
       lines.push(
         `${i + 1}. "${e.question_text}" — escolheu índice ${e.user_choice}, correto ${e.correct_answer}`
       );
@@ -104,20 +133,22 @@ function buildUserMessage(
 }
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const body = parseRequestBody(raw);
   if (!body) {
     return NextResponse.json(
-      { error: "Invalid payload: topicId is required (string)" },
+      { error: "Invalid payload: topicId é obrigatório (string)" },
       { status: 400 }
     );
   }
@@ -130,14 +161,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const userMessage = buildUserMessage(body.topicId, body.errorHistory);
+  const userMessage = buildUserMessage(body);
 
   let generated: GeneratedQuestion;
   try {
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1500,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -160,6 +191,9 @@ export async function POST(req: Request) {
     );
   }
 
+  // Persiste a questão pra reaproveitamento futuro. Continua usando o
+  // service-role admin client porque a tabela `questions` tem coluna
+  // `topic_id text` (sem FK direta pra exam_topics, schema legado).
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase

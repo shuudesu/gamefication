@@ -131,3 +131,15 @@ export type IntakeCargoChoice = {
 };
 
 export type IntakeResponse = IntakeFinalized | IntakeCargoChoice;
+
+export type PostItKind = "tip" | "mnemonic" | "concept" | "pitfall" | "strategy";
+
+export type PostItRow = {
+  id: string;
+  user_id: string;
+  exam_subject_id: string;
+  content: string;
+  kind: PostItKind;
+  is_saved: boolean;
+  created_at: string;
+};

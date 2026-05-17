@@ -13,6 +13,8 @@ type Props = {
   topicId: string;
   subjectCode: string;
   initialQuestion: Question;
+  topicName?: string;
+  subjectName?: string;
 };
 
 function rowToQuestion(
@@ -33,6 +35,8 @@ export function DailyQuestionBoard({
   topicId,
   subjectCode,
   initialQuestion,
+  topicName,
+  subjectName,
 }: Props) {
   const [question, setQuestion] = useState<Question>(initialQuestion);
   const [errorHistory, setErrorHistory] = useState<ErrorHistoryItem[]>([]);
@@ -61,7 +65,12 @@ export function DailyQuestionBoard({
       const res = await fetch("/api/generate-question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId, errorHistory }),
+        body: JSON.stringify({
+          topicId,
+          topicName,
+          subjectName,
+          errorHistory,
+        }),
       });
       const data = (await res.json()) as
         | { question: GeneratedQuestionRow }

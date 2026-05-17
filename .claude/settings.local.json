@@ -8,7 +8,9 @@
       "Bash(npx tsc *)",
       "Bash(node -e \"const sdk = require\\('@anthropic-ai/sdk'\\); console.log\\('version:', require\\('@anthropic-ai/sdk/package.json'\\).version\\);\")",
       "Bash(findstr /C:\"\\\\\"version\\\\\"\")",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(xargs grep -l \"generate\\\\|question\\\\|quiz\")",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }

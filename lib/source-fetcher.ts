@@ -1,33 +1,19 @@
-import { PDFParse } from "pdf-parse";
+// IMPORTANTE: este arquivo NÃO pode importar `pdf-parse` nem `pdfjs-dist`.
+// Esses pacotes assumem ambiente browser (DOMMatrix, ImageData, canvas) e
+// crasham no load em runtime Node do Vercel — quebrando todo o route que
+// importar source-fetcher transitivamente. A extração de texto do PDF
+// agora é feita nativamente pelo Claude (via document block com URL).
 
 const MAX_URL_BYTES = 5 * 1024 * 1024;
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
 const USER_AGENT = "GameficationConcursoOS/0.1 (+study-helper)";
 
 export type FetchedSource = {
   text: string;
-  origin: "pdf" | "url-pdf" | "url-html";
+  origin: "url-pdf" | "url-html";
   url?: string;
   pdfBuffer?: Buffer;
 };
-
-export async function extractPdfText(buffer: Buffer): Promise<string> {
-  if (buffer.byteLength > MAX_PDF_BYTES) {
-    throw new Error(
-      `PDF excede o limite de ${Math.round(MAX_PDF_BYTES / 1024 / 1024)}MB`
-    );
-  }
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  try {
-    const result = await parser.getText();
-    const text = result.text?.trim();
-    if (!text) throw new Error("Não foi possível extrair texto do PDF");
-    return text;
-  } finally {
-    await parser.destroy();
-  }
-}
 
 export async function fetchUrlAsSource(url: string): Promise<FetchedSource> {
   let parsed: URL;
@@ -71,8 +57,15 @@ export async function fetchUrlAsSource(url: string): Promise<FetchedSource> {
   }
 
   if (contentType.includes("application/pdf") || url.toLowerCase().endsWith(".pdf")) {
-    const text = await extractPdfText(buffer);
-    return { text, origin: "url-pdf", url, pdfBuffer: buffer };
+    // Não extraímos texto aqui — o route faz upload pro Storage e gera
+    // signed URL pra Claude ler nativamente. `text` é placeholder pra
+    // manter o shape do tipo.
+    return {
+      text: `[PDF de ${buffer.byteLength} bytes — extração nativa via Claude]`,
+      origin: "url-pdf",
+      url,
+      pdfBuffer: buffer,
+    };
   }
 
   if (contentType.includes("text/html") || contentType.includes("text/plain") || contentType === "") {

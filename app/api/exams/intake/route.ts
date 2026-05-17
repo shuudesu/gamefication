@@ -12,7 +12,10 @@ import type {
 } from "@/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300s = limite máximo no Vercel Pro. No Hobby plan é capped em 60s
+// independente desse valor (mas declarar não quebra). Claude
+// processando PDF grande nativamente pode levar 60-120s.
+export const maxDuration = 300;
 
 const PDF_PLACEHOLDER_KEY = "your-anthropic-api-key-here";
 const STORAGE_BUCKET = "editais";
@@ -39,10 +42,21 @@ export async function POST(req: Request) {
 }
 
 async function handlePOST(req: Request) {
+  const t0 = Date.now();
+  const log = (stage: string, extra?: Record<string, unknown>) => {
+    console.log(
+      `[intake] +${Date.now() - t0}ms ${stage}`,
+      extra ? JSON.stringify(extra) : ""
+    );
+  };
+
+  log("start");
+
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
+  log("auth-ok", { userId: user.id });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === PDF_PLACEHOLDER_KEY) {
@@ -117,6 +131,7 @@ async function handlePOST(req: Request) {
         label: "edital.pdf (Storage)",
       });
       storedPdfPath = pdfPath;
+      log("storage-signed-url-ok", { pdfPath, urlLen: signed.signedUrl.length });
     } catch (err) {
       const details = err instanceof Error ? err.message : "Erro no PDF";
       return NextResponse.json(
@@ -170,11 +185,17 @@ async function handlePOST(req: Request) {
     }
   }
 
+  log("calling-claude", { sourceCount: sources.length });
   let blueprint: ExamBlueprint;
   try {
     blueprint = await extractBlueprint(sources, apiKey);
+    log("claude-ok", {
+      cargos: blueprint.cargos.length,
+      name: blueprint.name,
+    });
   } catch (err) {
     const details = err instanceof Error ? err.message : "Erro na extração";
+    console.error("[intake] claude error:", err);
     return NextResponse.json(
       { error: "Falha ao extrair estrutura via IA", details },
       { status: 502 }

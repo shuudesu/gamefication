@@ -168,7 +168,11 @@ export async function extractBlueprint(
     text: "Extraia a estrutura do edital chamando a tool extract_exam_blueprint exatamente uma vez.",
   });
 
-  const response = await client.messages.create({
+  // Streaming obrigatório: o SDK rejeita requests não-streaming quando
+  // max_tokens é alto o suficiente pra estimar > 10min de execução.
+  // `.finalMessage()` consome o stream internamente e devolve o mesmo
+  // shape que `messages.create()` retornaria.
+  const stream = client.messages.stream({
     model: MODEL,
     // Haiku 4.5 suporta até 64K. 8192 estourava antes do `cargos` ser
     // emitido em editais grandes (vários cargos × matérias × tópicos).
@@ -184,6 +188,7 @@ export async function extractBlueprint(
     tool_choice: { type: "tool", name: TOOL.name },
     messages: [{ role: "user", content }],
   });
+  const response = await stream.finalMessage();
 
   // Telemetria pra diagnóstico de truncamento e custo.
   console.log("[extractBlueprint] response", {

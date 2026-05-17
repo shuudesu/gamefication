@@ -20,7 +20,9 @@ Regras críticas:
 - requirements: resumo curto (1 frase) dos requisitos de formação/escolaridade do cargo.
 - Não inclua disciplinas fora do conteúdo programático.
 - Datas em ISO YYYY-MM-DD.
-- Sempre chame a tool extract_exam_blueprint exatamente uma vez.`;
+- Sempre chame a tool extract_exam_blueprint exatamente uma vez.
+- OBRIGATÓRIO: o campo "cargos" SEMPRE deve conter pelo menos um item, mesmo se o edital citar um cargo único. NUNCA retorne só metadata (name/banca/exam_date) sem cargos.
+- Se o conteúdo programático de um cargo for muito extenso, prefira listar matérias com poucos tópicos representativos a omitir o cargo inteiro.`;
 
 const TOOL: Tool = {
   name: "extract_exam_blueprint",
@@ -168,7 +170,9 @@ export async function extractBlueprint(
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 8192,
+    // Haiku 4.5 suporta até 64K. 8192 estourava antes do `cargos` ser
+    // emitido em editais grandes (vários cargos × matérias × tópicos).
+    max_tokens: 32000,
     system: [
       {
         type: "text",
@@ -179,6 +183,13 @@ export async function extractBlueprint(
     tools: [TOOL],
     tool_choice: { type: "tool", name: TOOL.name },
     messages: [{ role: "user", content }],
+  });
+
+  // Telemetria pra diagnóstico de truncamento e custo.
+  console.log("[extractBlueprint] response", {
+    stop_reason: response.stop_reason,
+    usage: response.usage,
+    content_blocks: response.content.map((b) => b.type),
   });
 
   const toolUse = response.content.find((b) => b.type === "tool_use");
@@ -197,10 +208,15 @@ export async function extractBlueprint(
     // de schema do modelo.
     console.error("[extractBlueprint] payload inválido:", {
       reason: validation.reason,
+      stop_reason: response.stop_reason,
       payload: JSON.stringify(input).slice(0, 4000),
     });
+    const truncated = response.stop_reason === "max_tokens";
+    const hint = truncated
+      ? " — modelo bateu max_tokens no meio do JSON; edital provavelmente é muito grande"
+      : "";
     throw new Error(
-      `Payload do tool_use não bate com schema esperado (${validation.reason})`
+      `Payload do tool_use não bate com schema esperado (${validation.reason})${hint}`
     );
   }
 

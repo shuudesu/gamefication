@@ -14,10 +14,25 @@ const SYSTEM_PROMPT = `Você é um examinador de banca de concurso público bras
 Regras:
 - Linguagem do português brasileiro formal de banca (Cebraspe, FCC, FGV, Vunesp, Instituto Nosso Rumo).
 - Enunciado claro, sem ambiguidade. Pode usar texto de apoio se o tópico exigir.
-- 5 alternativas plausíveis, apenas UMA correta.
+- 5 alternativas plausíveis, apenas UMA correta. Distratores devem ser próximos da verdade pra forçar análise (não opções absurdas).
 - Explanation: justificativa curta (2-4 frases) explicando POR QUE a correta é correta E descartando 1-2 distratores mais óbvios.
 - Se o usuário tem histórico de erros, foque em conceitos onde demonstrou dificuldade SEM repetir literalmente as questões anteriores.
-- Retorne ESTRITAMENTE um objeto JSON: { "question_text": "...", "options": ["A","B","C","D","E"], "correct_answer": N, "explanation": "..." }`;
+
+POSIÇÃO DA RESPOSTA CORRETA — CRÍTICO:
+- "correct_answer" é o ÍNDICE da alternativa correta no array "options" (0=primeira, 1=segunda, 2=terceira, 3=quarta, 4=quinta).
+- VARIE a posição da resposta correta entre 0, 1, 2, 3 e 4. NÃO use sempre 1 (B). Distribua aleatoriamente entre todos os índices.
+- Antes de finalizar a resposta, escolha conscientemente uma posição aleatória pra correct_answer (use o último dígito do timestamp atual como referência se ajudar).
+
+FORMATO DE RESPOSTA:
+Retorne ESTRITAMENTE um objeto JSON com este shape:
+{
+  "question_text": "enunciado da questão",
+  "options": ["texto da opção 1", "texto da opção 2", "texto da opção 3", "texto da opção 4", "texto da opção 5"],
+  "correct_answer": <índice 0-4 da opção correta>,
+  "explanation": "justificativa"
+}
+
+ATENÇÃO: "options" deve conter o TEXTO REAL de cada alternativa, NÃO as letras A/B/C/D/E. As letras são apenas apresentação visual — você só preenche o conteúdo.`;
 
 type ErrorHistoryItem = {
   question_text: string;
@@ -88,6 +103,38 @@ function isGeneratedQuestion(value: unknown): value is GeneratedQuestion {
     v.correct_answer <= 4 &&
     typeof v.explanation === "string"
   );
+}
+
+/**
+ * Embaralha as 5 opções e atualiza correct_answer pro novo índice.
+ *
+ * LLMs (incluindo Claude) têm viés conhecido pra colocar a resposta
+ * correta no índice 1 (B). Isso é matematicamente quebrado pra um
+ * quiz: o usuário decora "chuto B" e ganha 100%. Shuffling server-side
+ * força distribuição uniforme independente do que o modelo emite.
+ *
+ * Fisher-Yates com Math.random() — pra quiz isso é suficiente
+ * (não precisa de crypto-strong randomness).
+ */
+function shuffleOptions(q: GeneratedQuestion): GeneratedQuestion {
+  const indices = [0, 1, 2, 3, 4];
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  const newOptions = indices.map((oldIdx) => q.options[oldIdx]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  const newCorrectIndex = indices.indexOf(q.correct_answer) as 0 | 1 | 2 | 3 | 4;
+  return {
+    ...q,
+    options: newOptions,
+    correct_answer: newCorrectIndex,
+  };
 }
 
 function extractJsonObject(text: string): unknown {
@@ -182,7 +229,10 @@ export async function POST(req: Request) {
     if (!isGeneratedQuestion(parsed)) {
       throw new Error("Generated payload does not match expected schema");
     }
-    generated = parsed;
+    // Embaralha SEMPRE — mesmo se o modelo cooperar e variar a posição,
+    // shuffle a mais não muda a corretude (a explicação se refere ao
+    // texto da opção, não ao índice). Custo: ~zero.
+    generated = shuffleOptions(parsed);
   } catch (err) {
     const details = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
